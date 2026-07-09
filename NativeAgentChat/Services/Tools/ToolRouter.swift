@@ -25,7 +25,7 @@ struct ToolRouter: Sendable {
     @MainActor
     private func openURL(_ rawURL: String?) async throws -> String? {
         guard let rawURL, let url = URL(string: rawURL) else { throw AppError.invalidURL(rawURL ?? "") }
-        UIApplication.shared.open(url)
+        await UIApplication.shared.open(url)
         return "Opened URL: \(url.absoluteString)"
     }
 
@@ -35,7 +35,7 @@ struct ToolRouter: Sendable {
         guard !query.isEmpty else { throw AppError.actionBlocked("Missing Sefaria query.") }
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
         guard let url = URL(string: "https://www.sefaria.org.il/search?q=\(encoded)") else { throw AppError.invalidURL(query) }
-        UIApplication.shared.open(url)
+        await UIApplication.shared.open(url)
         return "Opened Sefaria search for: \(query)"
     }
 
@@ -48,7 +48,7 @@ struct ToolRouter: Sendable {
             components?.queryItems?.append(URLQueryItem(name: "input", value: input))
         }
         guard let url = components?.url else { throw AppError.invalidURL(name) }
-        UIApplication.shared.open(url)
+        await UIApplication.shared.open(url)
         return "Requested Shortcut: \(name)"
     }
 
