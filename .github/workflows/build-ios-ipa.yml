@@ -1,0 +1,147 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare log directory
+        run: |
+          set -euo pipefail
+          mkdir -p build-logs
+          echo "Repository files:" | tee build-logs/repo-files.log
+          find . -maxdepth 4 -type f | sort | tee -a build-logs/repo-files.log
+
+      - name: Print runner and Xcode diagnostics
+        run: |
+          set -euo pipefail
+          {
+            echo "=== uname ==="
+            uname -a
+            echo
+            echo "=== sw_vers ==="
+            sw_vers
+            echo
+            echo "=== xcode-select ==="
+            xcode-select -p
+            echo
+            echo "=== xcodebuild version ==="
+            xcodebuild -version
+            echo
+            echo "=== available SDKs ==="
+            xcodebuild -showsdks
+            echo
+            echo "=== available destinations ==="
+            xcodebuild -showdestinations \
+              -project NativeAgentChat.xcodeproj \
+              -scheme NativeAgentChat || true
+          } | tee build-logs/environment.log
+
+      - name: Show project schemes
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -list \
+            -project NativeAgentChat.xcodeproj \
+            | tee build-logs/xcodebuild-list.log
+
+      - name: Show build settings
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project NativeAgentChat.xcodeproj \
+            -scheme NativeAgentChat \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            -showBuildSettings \
+            | tee build-logs/build-settings.log
+
+      - name: Build app without signing
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project NativeAgentChat.xcodeproj \
+            -scheme NativeAgentChat \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            clean build \
+            2>&1 | tee build-logs/xcodebuild-release.log
+
+      - name: Inspect build products
+        run: |
+          set -euo pipefail
+          {
+            echo "=== Build products ==="
+            find build/Build/Products -maxdepth 5 -print | sort
+            echo
+            echo "=== App bundle candidates ==="
+            find build/Build/Products -name '*.app' -type d -print
+          } | tee build-logs/build-products.log
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find build/Build/Products/Release-iphoneos -name '*.app' -type d | head -n 1)"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found" | tee build-logs/package.log
+            exit 1
+          fi
+
+          {
+            echo "Found app:"
+            echo "$APP_PATH"
+            echo
+            echo "App contents:"
+            find "$APP_PATH" -maxdepth 3 -print | sort
+          } | tee build-logs/package.log
+
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/NativeAgentChat.app
+
+          zip -qry NativeAgentChat-unsigned.ipa Payload
+
+          {
+            echo "IPA created:"
+            ls -lh NativeAgentChat-unsigned.ipa
+            echo
+            echo "IPA zip contents:"
+            unzip -l NativeAgentChat-unsigned.ipa | head -200
+          } | tee -a build-logs/package.log
+
+      - name: Upload unsigned IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NativeAgentChat-unsigned-ipa
+          path: NativeAgentChat-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NativeAgentChat-build-logs
+          path: build-logs
+          if-no-files-found: warn
